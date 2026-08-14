@@ -147,6 +147,7 @@ bool PlayerbotAIConfig::Initialize()
     rpgDistance = config.GetFloatDefault("AiPlayerbot.RpgDistance", 80.0f);
     proximityDistance = config.GetFloatDefault("AiPlayerbot.ProximityDistance", 20.0f);
     walkDistance = config.GetFloatDefault("AiPlayerbot.WalkDistance", 5.0f);
+    fishingMaxDistanceFromMaster = config.GetFloatDefault("AiPlayerbot.FishingMaxDistanceFromMaster", 20.0f);
 
     criticalHealth = config.GetIntDefault("AiPlayerbot.CriticalHealth", 20);
     lowHealth = config.GetIntDefault("AiPlayerbot.LowHealth", 50);

@@ -7,6 +7,33 @@
 
 using namespace ai;
 
+namespace
+{
+    WorldPosition GetFishSpotNearMaster(Player* master)
+    {
+        WorldPosition result;
+
+        if (!master)
+            return result;
+
+        float maxDistance = sPlayerbotAIConfig.fishingMaxDistanceFromMaster;
+
+        // Несколько попыток найти подходящую точку рядом с хозяином.
+        for (uint8 attempt = 0; attempt < 20; ++attempt)
+        {
+            WorldPosition* candidate = sTravelMgr.GetFishSpot(WorldPosition(master), true);
+
+            if (!candidate || !*candidate)
+                continue;
+
+            if (maxDistance <= 0.0f || candidate->distance(master) <= maxDistance)
+                return *candidate;
+        }
+
+        return result;
+    }
+}
+
 bool MoveToFishAction::isUseful()
 {
     if (qualifier == "travel")
@@ -24,35 +51,99 @@ bool MoveToFishAction::isUseful()
 }
 
 bool MoveToFishAction::Execute(Event& event)
-{    
-    WorldPosition fishSpot;
+{
+    WorldPosition fishSpot =
+        AI_VALUE2(WorldPosition, "custom position", "fish spot");
 
-    fishSpot = AI_VALUE2(WorldPosition, "custom position", "fish spot");
+    WorldPosition fishAnchor =
+        AI_VALUE2(WorldPosition, "custom position", "fish anchor");
 
-    if (!fishSpot && qualifier == "travel") //Get travel fish spot if available.
+    Player* master = GetMaster();
+
+    bool fishNearMaster =
+        qualifier != "travel" &&
+        master &&
+        fishAnchor;
+
+    /*
+     * Если включён режим fish here, а старая точка стала
+     * слишком далеко от хозяина — забываем её.
+     */
+    if (fishNearMaster && fishSpot)
     {
-        TravelTarget* target = AI_VALUE(TravelTarget*, "leader travel target");
+        float maxDistance =
+            sPlayerbotAIConfig.fishingMaxDistanceFromMaster;
+
+        if (fishSpot.getMapId() != master->GetMapId() ||
+            (maxDistance > 0.0f &&
+             fishSpot.distance(master) > maxDistance))
+        {
+            RESET_AI_VALUE2(
+                WorldPosition,
+                "custom position",
+                "fish spot");
+
+            fishSpot = WorldPosition();
+        }
+    }
+
+    /*
+     * Оригинальная travel-рыбалка.
+     */
+    if (!fishSpot && qualifier == "travel")
+    {
+        TravelTarget* target =
+            AI_VALUE(TravelTarget*, "leader travel target");
+
         fishSpot = *target->GetPosition();
 
-        if (AI_VALUE(TravelTarget*, "travel target") != target) //Do not fish ontop of master.
+        if (AI_VALUE(TravelTarget*, "travel target") != target)
             fishSpot = *sTravelMgr.GetFishSpot(bot, true);
     }
-    
-    if (!fishSpot) //Get any fish spot.
+
+    /*
+     * Выбираем новую fishing point.
+     */
+    if (!fishSpot)
     {
-        fishSpot = *sTravelMgr.GetFishSpot(bot);
+        if (fishNearMaster)
+        {
+            fishSpot = GetFishSpotNearMaster(master);
+        }
+        else
+        {
+            WorldPosition* candidate =
+                sTravelMgr.GetFishSpot(bot);
 
-        TravelPath movePath = sTravelNodeMap.getFullPath(bot, fishSpot, bot);
+            if (candidate)
+                fishSpot = *candidate;
+        }
 
+        if (!fishSpot)
+            return false;
+
+        TravelPath movePath =
+            sTravelNodeMap.getFullPath(bot, fishSpot, bot);
 
         if (movePath.empty())
+        {
+            RESET_AI_VALUE2(
+                WorldPosition,
+                "custom position",
+                "fish spot");
+
             return false;
+        }
 
         AI_VALUE(LastMovement&, "last movement").setPath(movePath);
     }
-    
-    SET_AI_VALUE2(WorldPosition, "custom position", "fish spot", fishSpot);
-   
+
+    SET_AI_VALUE2(
+        WorldPosition,
+        "custom position",
+        "fish spot",
+        fishSpot);
+
     if (fishSpot.distance(bot) < 1.0f)
         return false;
 
@@ -173,6 +264,80 @@ bool UseFishingBobberAction::Execute(Event& event)
 
         return true;
     }
+
+    return false;
+}
+
+bool FishCommandAction::Execute(Event& event)
+{
+    Player* requester =
+        event.getOwner() ? event.getOwner() : GetMaster();
+
+    std::string command = event.getParam();
+
+    if (command == "stop" || command == "off")
+    {
+        ai->ChangeStrategy(
+            "-fish",
+            BotState::BOT_STATE_NON_COMBAT);
+
+        RESET_AI_VALUE2(
+            WorldPosition,
+            "custom position",
+            "fish spot");
+
+        RESET_AI_VALUE2(
+            WorldPosition,
+            "custom position",
+            "fish anchor");
+
+        ai->TellPlayerNoFacing(
+            requester,
+            "Fishing stopped.");
+
+        return true;
+    }
+
+    if (command.empty() ||
+        command == "here" ||
+        command == "on")
+    {
+        Player* master = GetMaster();
+
+        if (!master)
+        {
+            ai->TellError(
+                requester,
+                "I have no master to fish near.");
+
+            return false;
+        }
+
+        SET_AI_VALUE2(
+            WorldPosition,
+            "custom position",
+            "fish anchor",
+            WorldPosition(master));
+
+        RESET_AI_VALUE2(
+            WorldPosition,
+            "custom position",
+            "fish spot");
+
+        ai->ChangeStrategy(
+            "+fish",
+            BotState::BOT_STATE_NON_COMBAT);
+
+        ai->TellPlayerNoFacing(
+            requester,
+            "Fishing near master.");
+
+        return true;
+    }
+
+    ai->TellPlayerNoFacing(
+        requester,
+        "Usage: fish here | fish stop");
 
     return false;
 }

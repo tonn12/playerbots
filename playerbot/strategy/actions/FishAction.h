@@ -61,4 +61,10 @@ namespace ai
         virtual std::vector<std::string> GetUsedValues() { return {}; }
 #endif 
     };
+    class FishCommandAction : public Action
+    {
+    public:
+        FishCommandAction(PlayerbotAI* ai) : Action(ai, "fish command") {}
+        virtual bool Execute(Event& event) override;
+    };
 }
