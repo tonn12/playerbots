@@ -161,7 +161,7 @@ namespace ai
             creators["tank attack chat shortcut"] = [](PlayerbotAI* ai) { return new TankAttackChatShortcutAction(ai); };
             creators["gossip hello"] = [](PlayerbotAI* ai) { return new GossipHelloAction(ai); };
             creators["cast"] = [](PlayerbotAI* ai) { return new CastCustomSpellAction(ai); };
-            creators["fish"] = [](PlayerbotAI* ai) { return new FishCommandAction(ai); };
+            creators["fish command"] = [](PlayerbotAI* ai) { return new FishCommandAction(ai); };
             creators["cast custom nc spell"] = [](PlayerbotAI* ai) { return new CastCustomNcSpellAction(ai); };
             creators["invite"] = [](PlayerbotAI* ai) { return new InviteToGroupAction(ai); };
             creators["join"] = [](PlayerbotAI* ai) { return new JoinGroupAction(ai); };
