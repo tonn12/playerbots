@@ -9,25 +9,191 @@ using namespace ai;
 
 namespace
 {
-    WorldPosition GetFishSpotNearMaster(Player* master)
+    float GetFishGroupOffset(Player* bot, Player* master)
+    {
+        if (!bot || !master)
+            return 0.0f;
+
+        Group* group = bot->GetGroup();
+
+        if (!group)
+            return 0.0f;
+
+        uint32 memberCount = 0;
+        uint32 botIndex = 0;
+        bool found = false;
+
+        for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+        {
+            Player* member = gref->getSource();
+
+            if (!member || member == master)
+                continue;
+
+            if (member == bot)
+            {
+                botIndex = memberCount;
+                found = true;
+            }
+
+            ++memberCount;
+        }
+
+        if (!found || memberCount <= 1)
+            return 0.0f;
+
+        // Расстояние между рыбаками.
+        constexpr float spacing = 3.0f;
+
+        float center =
+            (static_cast<float>(memberCount) - 1.0f) / 2.0f;
+
+        return
+            (static_cast<float>(botIndex) - center) * spacing;
+    }
+
+    bool IsFishWater(const WorldPosition& point)
+{
+    float waterLevel = point.getWaterLevel();
+    float groundLevel = point.getGroundLevel();
+
+    return waterLevel > -100000.0f &&
+           waterLevel > groundLevel + 0.5f;
+}
+
+WorldPosition SnapFishSpotToShore(Player* bot, const WorldPosition& spot)
+{
+    if (!bot || !spot)
+        return spot;
+
+    float orientation = spot.getO();
+
+    // Насколько далеко перед ботом должна уже находиться вода.
+    constexpr float waterCheckDistance = 5.0f;
+
+    // Ищем берег вдоль направления взгляда бота.
+    constexpr float searchBack = 6.0f;
+    constexpr float searchForward = 12.0f;
+    constexpr float searchStep = 0.5f;
+
+    for (float distance = 0.0f;
+     distance <= std::max(searchBack, searchForward);
+     distance += searchStep)
+{
+    for (int direction = 0; direction < 2; ++direction)
+    {
+        float signedDistance =
+            direction == 0 ? distance : -distance;
+
+        if (signedDistance > searchForward ||
+            signedDistance < -searchBack)
+        {
+            continue;
+        }
+
+        if (distance == 0.0f && direction == 1)
+            continue;
+
+        float x =
+            spot.getX() +
+            cos(orientation) * signedDistance;
+
+        float y =
+            spot.getY() +
+            sin(orientation) * signedDistance;
+
+        float z = spot.getZ();
+
+        bot->UpdateAllowedPositionZ(x, y, z);
+
+        WorldPosition standPoint(
+            spot.getMapId(),
+            x,
+            y,
+            z,
+            orientation);
+
+        float waterX =
+            x + cos(orientation) * waterCheckDistance;
+
+        float waterY =
+            y + sin(orientation) * waterCheckDistance;
+
+        WorldPosition waterPoint(
+            spot.getMapId(),
+            waterX,
+            waterY,
+            z,
+            orientation);
+
+        if (!IsFishWater(standPoint) &&
+            IsFishWater(waterPoint))
+        {
+            return standPoint;
+        }
+    }
+}
+
+    // Если берег определить не удалось,
+    // оставляем исходную точку.
+    return spot;
+}
+
+    WorldPosition GetFishSpotNearMaster(Player* bot, Player* master)
     {
         WorldPosition result;
 
-        if (!master)
+        if (!bot || !master)
             return result;
 
-        float maxDistance = sPlayerbotAIConfig.fishingMaxDistanceFromMaster;
+        float maxDistance =
+            sPlayerbotAIConfig.fishingMaxDistanceFromMaster;
 
-        // Несколько попыток найти подходящую точку рядом с хозяином.
         for (uint8 attempt = 0; attempt < 20; ++attempt)
         {
-            WorldPosition* candidate = sTravelMgr.GetFishSpot(WorldPosition(master), true);
+            WorldPosition* candidate =
+                sTravelMgr.GetFishSpot(WorldPosition(master), true);
 
             if (!candidate || !*candidate)
                 continue;
 
-            if (maxDistance <= 0.0f || candidate->distance(master) <= maxDistance)
-                return *candidate;
+            WorldPosition fishSpot = *candidate;
+
+            // Каждый бот получает своё смещение вдоль берега.
+            float offset = GetFishGroupOffset(bot, master);
+            
+
+            if (abs(offset) > 0.01f)
+            {
+                // Orientation fishing point направлена к воде.
+                // Поэтому +/- PI/2 даёт направление вдоль берега.
+                float sideAngle =
+                    fishSpot.getO() + M_PI_F / 2.0f;
+
+                float x =
+                    fishSpot.getX() + cos(sideAngle) * offset;
+
+                float y =
+                    fishSpot.getY() + sin(sideAngle) * offset;
+
+                float z = fishSpot.getZ();
+
+                // Подгоняем Z под поверхность земли в новой точке.
+                bot->UpdateAllowedPositionZ(x, y, z);
+
+                fishSpot.setX(x);
+                fishSpot.setY(y);
+                fishSpot.setZ(z);
+            }
+
+            fishSpot = SnapFishSpotToShore(bot, fishSpot);
+
+            // Проверяем уже индивидуальную точку, а не исходную.
+            if (maxDistance <= 0.0f ||
+                fishSpot.distance(master) <= maxDistance)
+            {
+                return fishSpot;
+            }
         }
 
         return result;
@@ -108,7 +274,7 @@ bool MoveToFishAction::Execute(Event& event)
     {
         if (fishNearMaster)
         {
-            fishSpot = GetFishSpotNearMaster(master);
+            fishSpot = GetFishSpotNearMaster(bot, master);
         }
         else
         {
@@ -291,6 +457,28 @@ bool FishCommandAction::Execute(Event& event)
             "custom position",
             "fish anchor");
 
+        /*
+         * Если follow был включён до начала рыбалки,
+         * возвращаем его.
+         */
+        WorldPosition restoreFollow =
+            AI_VALUE2(
+                WorldPosition,
+                "custom position",
+                "fish restore follow");
+
+        if (restoreFollow)
+        {
+            ai->ChangeStrategy(
+                "+follow",
+                BotState::BOT_STATE_NON_COMBAT);
+        }
+
+        RESET_AI_VALUE2(
+            WorldPosition,
+            "custom position",
+            "fish restore follow");
+
         ai->TellPlayerNoFacing(
             requester,
             "Fishing stopped.");
@@ -311,6 +499,44 @@ bool FishCommandAction::Execute(Event& event)
                 "I have no master to fish near.");
 
             return false;
+        }
+
+        /*
+         * Запоминаем, был ли follow включён.
+         *
+         * Маркер сохраняем только один раз, чтобы повторный
+         * fish here не потерял информацию.
+         */
+        WorldPosition restoreFollow =
+            AI_VALUE2(
+                WorldPosition,
+                "custom position",
+                "fish restore follow");
+
+        if (!restoreFollow &&
+            ai->HasStrategy(
+                "follow",
+                BotState::BOT_STATE_NON_COMBAT))
+        {
+            SET_AI_VALUE2(
+                WorldPosition,
+                "custom position",
+                "fish restore follow",
+                WorldPosition(master));
+        }
+
+        /*
+         * Follow мешает ботам занимать индивидуальные
+         * fishing positions, поэтому на время рыбалки
+         * отключаем его.
+         */
+        if (ai->HasStrategy(
+                "follow",
+                BotState::BOT_STATE_NON_COMBAT))
+        {
+            ai->ChangeStrategy(
+                "-follow",
+                BotState::BOT_STATE_NON_COMBAT);
         }
 
         SET_AI_VALUE2(
