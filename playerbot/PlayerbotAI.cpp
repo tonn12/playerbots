@@ -7553,7 +7553,7 @@ std::list<Item*> PlayerbotAI::InventoryParseItems(std::string text, IterateItems
     else if (text.find("usage ") == 0)
     {
         FindItemUsageVisitor visitor(bot, ItemUsage(stoi(text.substr(6))));
-        VISIT_MASK(IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
+        VISIT_MASK(mask == IterateItemsMask::ITERATE_ITEMS_IN_BANK ? IterateItemsMask::ITERATE_ITEMS_IN_BANK : IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
     }
     else if (text == "tradeskill")
     {

@@ -782,6 +782,11 @@ bool MovementAction::HandleSpecialMovement(TravelPath& path)
         return true;
     }
 
+    if (currentPoint.type == PathNodeType::NODE_TRANSPORT && sPlayerbotAIConfig.transportTeleportType == 2) //Instant teleport case
+    {
+        return bot->TeleportTo(nextPoint.point.getMapId(), nextPoint.point.getX(), nextPoint.point.getY(), nextPoint.point.getZ(), nextPoint.point.getO(), 0);
+    }
+    
     if (currentPoint.type == PathNodeType::NODE_TRANSPORT)
     {
         bool usedTransport = UseTransport(ai, currentPoint.entry, currentPoint.point, nextPoint.point, sPlayerbotAIConfig.transportTeleportType > 0);
@@ -796,7 +801,7 @@ bool MovementAction::HandleSpecialMovement(TravelPath& path)
         else
         {
             if (!bot->GetTransport())
-                return bot->TeleportTo(nextPoint.point.getMapId(), nextPoint.point.getX(), nextPoint.point.getY(), nextPoint.point.getZ(), nextPoint.point.getO(), 0) ? true : false;
+                return bot->TeleportTo(nextPoint.point.getMapId(), nextPoint.point.getX(), nextPoint.point.getY(), nextPoint.point.getZ(), nextPoint.point.getO(), 0);
 
             lastTransportEntry = nextPoint.entry;
         }
@@ -807,9 +812,9 @@ bool MovementAction::HandleSpecialMovement(TravelPath& path)
         WaitForReach(1000.0f);
         return true;
     }
-
+    
     if (nextPoint.type == PathNodeType::NODE_FLIGHTPATH && nextPoint.entry)
-        return UseTaxi(ai, nextPoint.entry, true) ? true : false;
+        return UseTaxi(ai, nextPoint.entry, true);
 
     if (nextPoint.type == PathNodeType::NODE_TELEPORT && nextPoint.entry)
     {
