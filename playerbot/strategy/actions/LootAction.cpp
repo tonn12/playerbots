@@ -134,10 +134,20 @@ bool OpenLootAction::DoLoot(LootObject& lootObject)
             }
         }
 
-        if (!isForQuest)
+        if (isForQuest)
         {
-            return ai->HasSkill(SKILL_HERBALISM) ? ai->CastSpell(HERB_GATHERING, bot) : false;
+            // Quest herb-like objects should be usable without the Herbalism profession.
+            if (go)
+            {
+                go->Use(bot);
+                SetDuration(sPlayerbotAIConfig.lootDelay);
+                return true;
+            }
+
+            return false;
         }
+
+        return ai->HasSkill(SKILL_HERBALISM) ? ai->CastSpell(HERB_GATHERING, bot) : false;
     }
 
     uint32 spellId = GetOpeningSpell(lootObject);
