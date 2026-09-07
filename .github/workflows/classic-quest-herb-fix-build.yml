@@ -30,11 +30,11 @@ jobs:
         with:
           path: playerbots-src
 
-      - name: Checkout CMaNGOS Classic core
+      - name: Checkout customized CMaNGOS Classic core
         uses: actions/checkout@v4
         with:
           repository: tonn12/mangos-classic
-          ref: master
+          ref: diagnostics/travel-move-perf
           path: core
 
       - name: Install patched PlayerBots module into core tree
