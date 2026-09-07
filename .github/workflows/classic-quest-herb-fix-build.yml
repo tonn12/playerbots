@@ -1,0 +1,123 @@
+name: Classic Quest Herb Fix Build
+
+on:
+  push:
+    branches:
+      - fix/quest-herb-gameobject
+
+permissions:
+  contents: write
+
+concurrency:
+  group: quest-herb-fix-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: Release
+  BOOST_VERSION: "1.87.0"
+  BOOST_PLATFORM_VERSION: "2022"
+  BOOST_TOOLSET: "msvc"
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout PlayerBots branch
+        uses: actions/checkout@v4
+        with:
+          path: playerbots-src
+          fetch-depth: 0
+
+      - name: Apply quest herb GameObject fix
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          path = Path("playerbots-src/playerbot/strategy/actions/LootAction.cpp")
+          data = path.read_bytes()
+
+          old_lf = b'''        if (!isForQuest)\n        {\n            return ai->HasSkill(SKILL_HERBALISM) ? ai->CastSpell(HERB_GATHERING, bot) : false;\n        }'''
+          new_lf = b'''        if (isForQuest)\n        {\n            // Quest herb-like objects should be usable without the Herbalism profession.\n            if (go)\n            {\n                go->Use(bot);\n                SetDuration(sPlayerbotAIConfig.lootDelay);\n                return true;\n            }\n\n            return false;\n        }\n\n        return ai->HasSkill(SKILL_HERBALISM) ? ai->CastSpell(HERB_GATHERING, bot) : false;'''
+
+          marker = b"Quest herb-like objects should be usable without the Herbalism profession."
+          if marker in data:
+              print("Quest herb fix already present")
+          else:
+              old_crlf = old_lf.replace(b"\n", b"\r\n")
+              new_crlf = new_lf.replace(b"\n", b"\r\n")
+              if old_crlf in data:
+                  data = data.replace(old_crlf, new_crlf, 1)
+              elif old_lf in data:
+                  data = data.replace(old_lf, new_lf, 1)
+              else:
+                  raise SystemExit("Expected LootAction.cpp block was not found")
+              path.write_bytes(data)
+              print("Quest herb fix applied")
+          '@ | python -
+
+      - name: Commit source fix to branch
+        shell: pwsh
+        run: |
+          cd playerbots-src
+          if (git status --porcelain) {
+            git config user.name "ChatGPT Build Bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add playerbot/strategy/actions/LootAction.cpp
+            git commit -m "Fix quest herb gameobject interaction"
+            git push origin HEAD:${{ github.ref_name }}
+          } else {
+            Write-Host "Source fix already committed"
+          }
+
+      - name: Checkout CMaNGOS Classic core
+        uses: actions/checkout@v4
+        with:
+          repository: tonn12/mangos-classic
+          ref: master
+          path: core
+
+      - name: Install patched PlayerBots module into core tree
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "core/src/modules" | Out-Null
+          if (Test-Path "core/src/modules/PlayerBots") {
+            Remove-Item -Recurse -Force "core/src/modules/PlayerBots"
+          }
+          Copy-Item -Recurse -Force "playerbots-src" "core/src/modules/PlayerBots"
+          if (Test-Path "core/src/modules/PlayerBots/.git") {
+            Remove-Item -Recurse -Force "core/src/modules/PlayerBots/.git"
+          }
+
+      - name: Install Boost
+        uses: MarkusJx/install-boost@v2.6.0
+        id: install-boost
+        with:
+          boost_version: ${{ env.BOOST_VERSION }}
+          platform_version: ${{ env.BOOST_PLATFORM_VERSION }}
+          toolset: ${{ env.BOOST_TOOLSET }}
+
+      - name: Configure Classic with PlayerBots and AHBot
+        shell: pwsh
+        env:
+          BOOST_ROOT: ${{ steps.install-boost.outputs.BOOST_ROOT }}
+        run: |
+          cmake -DBUILD_PLAYERBOTS=ON -DBUILD_AHBOT=ON -DBUILD_GIT_ID=ON -B build -S core
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+      - name: Package binaries
+        shell: pwsh
+        run: |
+          7z a -tzip "classic-quest-herb-fix.zip" "build/bin/x64_Release/*"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: classic-quest-herb-fix
+          path: classic-quest-herb-fix.zip
+          if-no-files-found: error
