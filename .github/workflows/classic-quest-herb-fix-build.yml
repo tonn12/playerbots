@@ -1,3 +1,4 @@
+# Windows-only Classic build for the quest herb GameObject fix.
 name: Classic Windows Build
 
 on:
